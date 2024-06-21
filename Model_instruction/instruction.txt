@@ -6,3 +6,7 @@ user input.
 
 Vector Database -> https://app.pinecone.io/
 
+For Embedding, 
+sentence transformer -> https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+This model is a variant of the BERT model, but with a smaller architecture and fewer parameters.
+
