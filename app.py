@@ -1,3 +1,4 @@
+
 from flask import Flask, render_template, jsonify, request
 import sys
 from langchain import PromptTemplate
@@ -21,58 +22,65 @@ index_name="medical"
 #Loading the index
 docsearch = PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME,embeddings)
 
+# Define the prompt template
 prompt_template = """
-Use the given information context to give appropriate answer for the user's question.
-If you don't know the answer, just say that you know the answer, but don't make up an answer.
+Use the given information context to give an appropriate answer for the user's question.
+If you don't know the answer, just say that you don't know the answer, but don't make up an answer.
 Context: {context}
 Question: {question}
 Only return the appropriate answer and nothing else.
 Helpful answer:
 """
 
-PROMPT=PromptTemplate(template=prompt_template, input_variables=["context", "question"])
+PROMPT = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
 
-chain_type_kwargs={"prompt": PROMPT}
+chain_type_kwargs = {"prompt": PROMPT}
 
+# Define the configuration for the language model
 config = {'max_new_tokens': 512, 'temperature': 0.8}
-llm = CTransformers(model='TheBloke/Llama-2-7B-Chat-GGML',\
-                    model_file='llama-2-7b-chat.ggmlv3.q4_0.bin',model_type='llama' ,config=config)
+llm = CTransformers(model='TheBloke/Llama-2-7B-Chat-GGML', model_file='llama-2-7b-chat.ggmlv3.q4_0.bin', model_type='llama', config=config)
 
-'''
-qa = RetrievalQA.from_chain_type(
-    llm=llm,
-    chain_type='stuff',
-    retriever=docsearch.as_retriever(search_kwargs={'k': 2}),
-    return_source_documents=True,
-    chain_type_kwargs=chain_type_kwargs
-)
-'''
-# Initialize RetrievalQA instance
-try:
-    qa = RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=docsearch.as_retriever()
-    )
-except Exception as e:
-    print(f"Error initializing RetrievalQA: {e}")
+# Initialize qa globally
+qa = None
 
+# Function to initialize RetrievalQA
+def initialize_qa():
+    global qa
+    try:
+        qa = RetrievalQA.from_chain_type(
+            llm=llm,
+            chain_type="retrievalqa",
+            retriever=docsearch.as_retriever(search_kwargs={'k': 2}),
+            return_source_documents=True,
+            chain_type_kwargs={"prompt": PROMPT}  # Pass prompt template as chain_type_kwargs
+        )
+        print("QA system initialized successfully.")
+    except Exception as e:
+        print(f"Error initializing RetrievalQA: {e}")
+
+# Initialize QA when the application starts
+initialize_qa()
+
+# Define routes for Flask application
 @app.route("/")
 def index():
     return render_template('chat.html')
 
-
-
-@app.route("/get", methods=["GET", "POST"])
+@app.route("/get", methods=["POST"])
 def chat():
-    msg = request.form["msg"]
-    input = msg
-    print(input)
-    result=qa.invoke(input)
-    print("Response : ", result["result"])
-    return str(result["result"])
+    msg = request.form.get("msg")
+    if not msg:
+        return jsonify({"error": "No message provided"}), 400
+    if qa is None:
+        return jsonify({"error": "QA system is not initialized"}), 500
+    try:
+        result = qa.invoke(msg)
+        response = result["result"]
+        return jsonify({"response": response})
+    except Exception as e:
+        print(f"Error processing request: {e}")
+        return jsonify({"error": "An error occurred while processing the request"}), 500
 
-
-
+# Run Flask application
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port= 8080, debug= True)
+    app.run(host="0.0.0.0", port=8080, debug=True)
